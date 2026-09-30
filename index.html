@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Клёв рыбы · Астана</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* Layout: карта слева (на телефоне сверху), панель водоёма справа; сверху — выбор дня и времени */
+:root{
+  --bg:#eef2f0; --panel:#ffffff; --ink:#15231f; --muted:#5b6b66; --line:#d5ddd9;
+  --accent:#c77d1a; --deep:#1d5b56; --deep-soft:#e2eeec;
+  --bad:#b8452f; --weak:#d98a2b; --mid:#c9b52c; --good:#5f9e3d; --top:#1f7a4d;
+  --f-display:"Unbounded","Arial Black",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-num:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1715; --panel:#16211e; --ink:#e3ece8; --muted:#94a8a1; --line:#2a3834;
+  --accent:#e6a045; --deep:#6cc2b8; --deep-soft:#1c2e2a;
+  --bad:#d8664d; --weak:#e59a3d; --mid:#d2c04a; --good:#79b957; --top:#3fae78; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1715; --panel:#16211e; --ink:#e3ece8; --muted:#94a8a1; --line:#2a3834;
+  --accent:#e6a045; --deep:#6cc2b8; --deep-soft:#1c2e2a;
+  --bad:#d8664d; --weak:#e59a3d; --mid:#d2c04a; --good:#79b957; --top:#3fae78; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body)}
+header{padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font:700 18px/1.1 var(--f-display);margin:0;letter-spacing:.01em}
+h1 small{display:block;font:500 12px var(--f-body);color:var(--muted);letter-spacing:0;margin-top:3px}
+.ctrl{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-right:4px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;padding:5px 9px;font:500 13px var(--f-body);cursor:pointer}
+.chip:hover{border-color:var(--deep)}
+.chip[aria-pressed="true"]{background:var(--deep);border-color:var(--deep);color:var(--panel)}
+.chip:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chip .d{display:block;font-size:10px;opacity:.75}
+main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(340px,1fr);height:calc(100% - var(--hh,120px))}
+#map{min-height:420px;height:100%;background:var(--deep-soft)}
+aside{overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:16px 18px 40px;min-width:0}
+@media (max-width:860px){
+  main{display:block;height:auto}
+  #map{height:52vh;min-height:320px}
+  aside{border-left:0;border-top:1px solid var(--line)}
+}
+.status{font-size:13px;color:var(--muted);padding:6px 0}
+.status.err{color:var(--bad)}
+h2{font:700 17px/1.2 var(--f-display);margin:0 0 4px;text-wrap:balance}
+.meta{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.sp-tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
+.tag{font-size:12px;border-radius:6px;padding:2px 7px;background:var(--deep-soft);color:var(--deep)}
+.tag.no{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+.tbl-wrap{overflow-x:auto;margin:14px 0 6px}
+table{border-collapse:separate;border-spacing:4px;width:100%;font-variant-numeric:tabular-nums}
+th{font:500 11px var(--f-body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:center;padding:2px}
+th.row{text-align:left;font:600 14px var(--f-body);text-transform:none;letter-spacing:0;color:var(--ink);white-space:nowrap}
+td.p{text-align:center;border-radius:8px;padding:9px 2px;font:700 16px var(--f-num);color:#fff;cursor:pointer;min-width:52px;border:2px solid transparent}
+td.p.sel{border-color:var(--ink)}
+td.p.na{background:transparent!important;color:var(--muted);font:500 12px var(--f-body);border:1px dashed var(--line);cursor:default}
+td.p small{display:block;font:500 10px var(--f-body);opacity:.9}
+.wx{display:grid;grid-template-columns:auto repeat(5,minmax(0,1fr));gap:2px 4px;font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums}
+.wx div{padding:3px 2px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wx .k{text-align:left;color:var(--muted)}
+.wx .hd{font:600 11px var(--f-num);color:var(--muted)}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+td.grp{font:600 11px var(--f-body);text-transform:uppercase;letter-spacing:.08em;color:var(--accent);padding:8px 2px 0}
+details{border-top:1px solid var(--line);padding:10px 0}
+summary{cursor:pointer;font:600 14px var(--f-body);list-style:none;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font:500 18px var(--f-num);color:var(--muted)}
+details[open] summary::after{content:"–"}
+.fac{list-style:none;padding:0;margin:8px 0 0;font-size:13px}
+.fac li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dotted var(--line)}
+.fac b{font:700 12px var(--f-num)}
+.pos{color:var(--good)} .neg{color:var(--bad)} .zero{color:var(--muted)}
+.note{font-size:13px;color:var(--muted)}
+.lure h4{margin:10px 0 2px;font-size:13px}
+.lure p{margin:0;font-size:13px}
+.warn{background:color-mix(in srgb,var(--accent) 16%,transparent);border-left:3px solid var(--accent);padding:8px 10px;border-radius:4px;font-size:13px;margin:10px 0}
+.rank{margin-top:6px}
+.rank button{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;background:none;border:0;border-bottom:1px solid var(--line);padding:7px 2px;color:var(--ink);font:500 14px var(--f-body);cursor:pointer;text-align:left}
+.rank button:hover{background:var(--deep-soft)}
+.pill{font:700 13px var(--f-num);color:#fff;border-radius:6px;padding:2px 8px;min-width:46px;text-align:center}
+.mk{display:flex;align-items:center;justify-content:center;border-radius:50%;font:700 12px var(--f-num);color:#fff;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.mk.sel{outline:3px solid #111;outline-offset:1px}
+.mk.city{background:#1a1a1a;font-size:9px;border-radius:4px}
+.leaflet-tooltip{font:500 12px var(--f-body)}
+.toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer}
+.compact .extra{display:none}
+footer{font-size:11px;color:var(--muted);margin-top:18px;line-height:1.5}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header id="hdr">
+  <h1>Клёв рыбы<small>Астана и окрестности до 250 км · хищник и мирная рыба</small></h1>
+  <div class="ctrl" id="days" role="group" aria-label="День"><span class="lbl">День</span></div>
+  <div class="ctrl" id="slots" role="group" aria-label="Время на карте"><span class="lbl">На карте</span></div>
+  <div class="ctrl" id="spsel" role="group" aria-label="Рыба на карте"><span class="lbl">Рыба</span></div>
+  <label class="toggle"><input type="checkbox" id="compact"> только проценты</label>
+</header>
+<main>
+  <div id="map" aria-label="Карта водоёмов"></div>
+  <aside id="panel"><div class="status" id="status">Загружаю прогноз погоды…</div></aside>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+/* ---------- Водоёмы ---------- */
+// d = относительная плотность вида (0..1), 0 = вида нет или единично
+const WATERS = [
+ {id:"esil-city", name:"Есиль в черте Астаны", type:"river", lat:51.160, lon:71.430,
+  d:{pike:.45, perch:.7, zander:.15, carp:.45, sazan:.2, amur:0},
+  spots:"Устья ливнёвок и каналов, опоры мостов, ямы у набережной ближе к мечети Ырыскелді Қажы. Окунь стоит у бетонных откосов, щука — у зарослей и коряжника выше по течению.", calm:"Карп и сазан — тихие заводи у набережной и выходы каналов, донка или фидер вечером и ночью."},
+ {id:"esil-down", name:"Есиль ниже города (Талапкер)", type:"river", lat:51.085, lon:71.150,
+  d:{pike:.65, perch:.7, zander:.3, carp:.3, sazan:.35, amur:0},
+  spots:"Прямые участки с тростником по берегу, повороты русла с обратным течением и ямы на выходе с перекатов. Судака ищите в сумерках на свале в яму.", calm:"Сазан держится у бровки русла и на выходе из ям, карп — в тихих заводях с тростником. Ставьте донки на ночь."},
+ {id:"vyach", name:"Астанинское (Вячеславское) водохранилище", type:"res", lat:50.970, lon:72.218,
+  d:{pike:.75, perch:.8, zander:.6, carp:.5, sazan:.45, amur:.15},
+  spots:"Щука — кромка тростника, заливы и затопленные кусты в верхней части. Судак — русловые бровки старого Есиля и зона у плотины на 6–12 м. Окунь — каменистые мысы и свалы 3–5 м. Ловля по путёвке.", calm:"Карп и сазан — прогретые заливы с тростником, окна в траве, границы трава/чистая вода на 1,5–3 м. Амур встречается редко, у зарослей."},
+ {id:"koyandy", name:"Кояндинское водохранилище", type:"res", lat:51.300, lon:71.680,
+  d:{pike:.35, perch:.65, zander:0, carp:.4, sazan:0, amur:.15},
+  spots:"Небольшой водоём: окунь у плотины и на глубине в центре, щука — у травы в верховье. Судака нет.", calm:"Карп у тростника и на прогретом мелководье, амур — у травы днём. Сазана нет."},
+ {id:"nura", name:"Река Нура у Сабынды", type:"river", lat:50.878, lon:70.557,
+  d:{pike:.7, perch:.65, zander:.45, carp:.2, sazan:.55, amur:0},
+  spots:"Плёсы с тростником, выходы из стариц, ямы на изгибах. Судак — вечером и ночью на выходе из ямы на песок.", calm:"Сазан — ямы на изгибах, выходы из стариц, коряжник; лучше всего ночью на донку."},
+ {id:"selety", name:"Селетинское водохранилище", type:"res", lat:52.112, lon:72.587,
+  d:{pike:.75, perch:.8, zander:.7, carp:.35, sazan:.45, amur:.1},
+  spots:"Каменистые берега каньона и свалы у плотины — судак и окунь. Щука — заливы с травой в верхней части. На ветру проверяйте подветренный берег.", calm:"Сазан и карп — прогретые заливы верхней части и травяные участки; у плотины холодно и глубоко."},
+ {id:"samark", name:"Самаркандское водохранилище (Темиртау)", type:"res", lat:50.098, lon:73.015,
+  d:{pike:.6, perch:.75, zander:.75, carp:.6, sazan:.5, amur:.45},
+  spots:"Судак — русловые бровки и затопленные дороги на 5–10 м, особенно в сумерках. Окунь — стаями по свалам. Щука — травяные заливы.", calm:"Тёплый водоём: карп, сазан и амур. Ищите у тростника и травы в заливах, амура — днём в жару у зарослей."},
+ {id:"sherub", name:"Шерубайнуринское водохранилище", type:"res", lat:49.488, lon:72.793,
+  d:{pike:.6, perch:.7, zander:.65, carp:.5, sazan:.45, amur:.3},
+  spots:"Бровки старого русла Шерубайнуры, каменистые мысы. Щука — мелководные заливы с растительностью.", calm:"Карп и сазан — травяные заливы и прогретые отмели, амур — у водной растительности."},
+ {id:"shchuch", name:"Озеро Щучье (Бурабай)", type:"lake", lat:52.981, lon:70.213,
+  d:{pike:.7, perch:.75, zander:.4, carp:0, sazan:0, amur:0},
+  spots:"Чистое глубокое озеро: щука у травы и камней вдоль берега, окунь на свалах 4–8 м, судак — глубже и в сумерках. Уточняйте правила нацпарка.", calm:""},
+ {id:"bchebach", name:"Озеро Большое Чебачье", type:"lake", lat:53.116, lon:70.270,
+  d:{pike:.7, perch:.8, zander:.35, carp:0, sazan:0, amur:0},
+  spots:"Каменистые мысы и острова — окунь и судак; тростниковые заливы — щука. Уточняйте правила нацпарка.", calm:""},
+ {id:"burabay", name:"Озеро Бурабай (Боровое)", type:"lake", lat:53.080, lon:70.285,
+  d:{pike:.6, perch:.7, zander:.2, carp:0, sazan:0, amur:0},
+  spots:"Территория нацпарка, рыбалка ограничена — только в разрешённых местах. Щука у травы, окунь у камней.", calm:""}
+];
+const ASTANA = {lat:51.128, lon:71.430};
+const SPECIES = [
+ {id:"pike",  name:"Щука",       g:"pred"},
+ {id:"perch", name:"Окунь",      g:"pred"},
+ {id:"zander",name:"Судак",      g:"pred"},
+ {id:"carp",  name:"Карп",       g:"calm"},
+ {id:"sazan", name:"Сазан",      g:"calm"},
+ {id:"amur",  name:"Белый амур", g:"calm"}
+];
+const GROUPS=[{id:"pred",name:"Хищник"},{id:"calm",name:"Мирная рыба"}];
+const SLOTS = [ // offset = на сколько суток вперёд от выбранного дня
+ {h:6, off:0, label:"06:00"},
+ {h:12,off:0, label:"12:00"},
+ {h:19,off:0, label:"19:00"},
+ {h:0, off:1, label:"24:00"},
+ {h:3, off:1, label:"03:00"}
+];
+const TYPE_RU = {river:"река", res:"водохранилище", lake:"озеро"};
+
+/* ---------- Утилиты ---------- */
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => d.getUTCFullYear()+"-"+pad(d.getUTCMonth()+1)+"-"+pad(d.getUTCDate());
+function addDays(s,n){const d=new Date(s+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);return ymd(d)}
+function km(a,b){const R=6371,r=Math.PI/180,dl=(b.lat-a.lat)*r,dn=(b.lon-a.lon)*r;
+  const x=Math.sin(dl/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dn/2)**2;return Math.round(2*R*Math.asin(Math.sqrt(x)))}
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+function colorFor(p){ if(p==null) return "var(--line)";
+  return p>=80?"var(--top)":p>=65?"var(--good)":p>=45?"var(--mid)":p>=25?"var(--weak)":"var(--bad)"}
+function wordFor(p){return p>=80?"отлично":p>=65?"хорошо":p>=45?"средне":p>=25?"слабо":"плохо"}
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+
+/* ---------- Климатология воды (озёра/водохр. Акмолинской обл., °C, середина месяца) ---------- */
+const WATER_CLIM=[0.5,0.5,0.5,2.5,11,18,21,19.5,13,6,1.5,0.5];
+function climWater(dateStr){
+  const d=new Date(dateStr+"T12:00:00Z"),m=d.getUTCMonth(),day=d.getUTCDate();
+  const f=(day-15)/30; const m2=(m+(f>=0?1:11))%12;
+  const w=Math.abs(f); return WATER_CLIM[m]*(1-w)+WATER_CLIM[m2]*w;
+}
+/* ---------- Фаза Луны (0 = новолуние, 0.5 = полнолуние) ---------- */
+function moonPhase(dateStr){const t=Date.parse(dateStr+"T12:00:00Z");const ref=Date.UTC(2000,0,6,18,14);
+  const syn=29.530588853;let p=((t-ref)/864e5)/syn;p-=Math.floor(p);return p}
+function moonName(p){return p<.03||p>.97?"новолуние":p<.22?"растущий серп":p<.28?"первая четверть":p<.47?"растущая луна":p<.53?"полнолуние":p<.72?"убывающая луна":p<.78?"последняя четверть":"убывающий серп"}
+
+/* ---------- Погода ---------- */
+const API="https://api.open-meteo.com/v1/forecast";
+async function loadWeather(){
+  const cacheKey="klev-wx-v3";
+  const cached=store.get(cacheKey);
+  if(cached){try{const c=JSON.parse(cached);if(Date.now()-c.t<60*60*1000)return c.data}catch(e){}}
+  const q=new URLSearchParams({
+    latitude:WATERS.map(w=>w.lat).join(","), longitude:WATERS.map(w=>w.lon).join(","),
+    hourly:"temperature_2m,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cloud_cover,precipitation,weather_code",
+    daily:"sunrise,sunset", wind_speed_unit:"ms", timezone:"Asia/Tashkent", past_days:"7", forecast_days:"8"
+  });
+  const r=await fetch(API+"?"+q.toString());
+  if(!r.ok) throw new Error("Сервис погоды ответил "+r.status);
+  let data=await r.json(); if(!Array.isArray(data)) data=[data];
+  store.set(cacheKey,JSON.stringify({t:Date.now(),data}));
+  return data;
+}
+
+/* Подготовка ряда по одному водоёму */
+function prepare(w,raw){
+  const H=raw.hourly, idx={}; H.time.forEach((t,i)=>idx[t]=i);
+  // средняя температура воздуха по дням
+  const days={}; H.time.forEach((t,i)=>{const d=t.slice(0,10);(days[d]=days[d]||[]).push(H.temperature_2m[i])});
+  const dlist=Object.keys(days).sort();
+  const tau = w.type==="river"?3:(w.type==="lake"?6:5);
+  const a=1-Math.exp(-1/tau);
+  let ema=climWater(dlist[0]); const water={}; const prevW={};
+  dlist.forEach((d,k)=>{
+    const vals=days[d].filter(v=>v!=null); const mean=vals.reduce((s,v)=>s+v,0)/Math.max(1,vals.length);
+    prevW[d]=ema;
+    ema=ema+a*(Math.max(0,mean)-ema);
+    const tw=Math.max(0.3,0.45*climWater(d)+0.55*ema);
+    water[d]=tw;
+  });
+  const sun={}; raw.daily.time.forEach((d,i)=>sun[d]={rise:raw.daily.sunrise[i],set:raw.daily.sunset[i]});
+  return {H,idx,water,sun,dlist};
+}
+
+function lightPhase(t,sun){
+  const d=t.slice(0,10); const s=sun[d]; if(!s) return "night";
+  const m=x=>{const [hh,mm]=x.slice(11,16).split(":").map(Number);return hh*60+mm};
+  const tm=m(t),r=m(s.rise),st=m(s.set);
+  if(Math.abs(tm-r)<=75||Math.abs(tm-st)<=75) return "twilight";
+  if(tm>r&&tm<st) return "day";
+  return "night";
+}
+const LIGHT_RU={day:"день",twilight:"рассвет/закат",night:"ночь"};
+
+/* ---------- Модель клёва ---------- */
+// pT: баллы за давление [стабильно(×press), плавно падает, резко падает, растёт, резко растёт]
+// wind: [штиль <1, слабый 1–3, рабочий 3–7, сильный 7–10, шторм >10]
+// autumn: [бонус, мин. t воды, макс. t воды]; spring: [бонус, мин, макс]; cold: [порог t воды, штраф]
+const SP_PARAM={
+  pike:  {tOpt:12,tW:8,light:{night:-18,twilight:14,day:5},cloudDay:8,sunCalm:-6,press:.7,pT:[9,6,-6,-2,-9],hiP:-3,
+          wind:[-4,3,8,-4,-14],rain:4,dT:-6,ice:-14,autumn:[11,3,17],spring:[2,0,12]},
+  perch: {tOpt:16,tW:8,light:{night:-32,twilight:3,day:14},cloudDay:0,sunCalm:0,press:1,pT:[9,-5,-15,2,-9],hiP:-3,
+          wind:[0,3,6,-4,-14],rain:-2,dT:-9,ice:-8,autumn:[4,3,17],spring:[5,0,12]},
+  zander:{tOpt:13,tW:7,light:{night:8,twilight:15,day:-13},cloudDay:13,sunCalm:-6,press:.9,pT:[9,-2,-13,-5,-14],hiP:-6,
+          wind:[-2,3,6,-4,-14],rain:2,dT:-6,ice:-16,autumn:[8,3,17],spring:[2,0,12]},
+  carp:  {tOpt:22,tW:6,light:{night:6,twilight:12,day:-4},cloudDay:5,sunCalm:-5,press:.9,pT:[9,2,-10,-4,-12],hiP:-4,
+          wind:[0,4,6,-6,-14],rain:3,dT:-9,ice:-25,autumn:[6,12,19],spring:[6,12,20],cold:[12,-12],hot:true},
+  sazan: {tOpt:21,tW:6,light:{night:8,twilight:12,day:-5},cloudDay:5,sunCalm:-5,press:.9,pT:[9,2,-10,-4,-12],hiP:-4,
+          wind:[0,4,6,-6,-14],rain:3,dT:-9,ice:-25,autumn:[6,12,19],spring:[6,12,20],cold:[12,-12],hot:true},
+  amur:  {tOpt:24,tW:6,light:{night:-6,twilight:8,day:6},cloudDay:0,sunCalm:0,press:.7,pT:[9,1,-9,-3,-10],hiP:-3,
+          wind:[2,3,0,-8,-14],rain:1,dT:-9,ice:-25,autumn:[3,14,20],spring:[4,14,22],cold:[15,-12]}
+};
+function conditions(P,wId,t){
+  const i=P.idx[t]; if(i==null) return null;
+  const H=P.H, g=(arr,j)=>j>=0&&j<arr.length?arr[j]:null;
+  const d=t.slice(0,10);
+  const pr=H.pressure_msl[i], pr24=g(H.pressure_msl,i-24), pr3=g(H.pressure_msl,i-3);
+  const t24=g(H.temperature_2m,i-24);
+  let rain=0; for(let k=Math.max(0,i-2);k<=i;k++) rain+=H.precipitation[k]||0;
+  const tw=P.water[d]; const twPrev=P.water[addDays(d,-4)];
+  return {
+    t, air:H.temperature_2m[i], press:pr, dP24:pr24!=null?pr-pr24:0, dP3:pr3!=null?pr-pr3:0,
+    dT24:t24!=null?H.temperature_2m[i]-t24:0, wind:H.wind_speed_10m[i], gust:H.wind_gusts_10m[i],
+    wdir:H.wind_direction_10m[i], cloud:H.cloud_cover[i], rain3:rain, code:H.weather_code[i],
+    water:tw, waterTrend:twPrev!=null?(tw-twPrev)/4:0, light:lightPhase(t,P.sun), moon:moonPhase(d),
+    month:new Date(d+"T12:00:00Z").getUTCMonth()+1, day:new Date(d+"T12:00:00Z").getUTCDate()
+  };
+}
+function score(sp,c,dens){
+  if(!c) return null;
+  if(!dens) return {p:null,f:[]};
+  const S=SP_PARAM[sp]; const f=[]; let s=45;
+  const add=(v,txt)=>{v=Math.round(v);if(v===0)return;s+=v;f.push([txt,v])};
+  const ice = c.water<=1.2 && (c.month>=11||c.month<=4);
+  // 1. температура воды
+  const gw=Math.exp(-(((c.water-S.tOpt)/S.tW)**2));
+  add(gw*40-22,`Вода ≈${c.water.toFixed(1)}°C (оптимум ${S.tOpt}°)`);
+  if(S.cold && c.water<S.cold[0]) add(S.cold[1],`Холодная вода — рыба почти не питается`);
+  // 2. сезон
+  if(c.waterTrend<-0.15 && c.water>S.autumn[1] && c.water<S.autumn[2])
+    add(S.autumn[0], S.hot||sp==="amur"?"Вода остывает — предзимний откорм":"Вода остывает — осенний жор");
+  else if(c.waterTrend>0.2 && c.water>=S.spring[1] && c.water<S.spring[2] && c.month<=7)
+    add(S.spring[0],"Прогрев воды весной");
+  // 3. свет и время суток
+  add(S.light[c.light],`Время суток: ${LIGHT_RU[c.light]}`);
+  if(c.light==="day" && c.cloud>=60 && S.cloudDay) add(S.cloudDay*(c.cloud-50)/50,"Пасмурно днём");
+  if(c.light==="day" && c.cloud<20 && S.sunCalm && c.wind<2.5) add(S.sunCalm,"Яркое солнце и штиль");
+  if(S.hot && c.light==="day" && c.water>24) add(-8,"Жара днём — рыба уходит на глубину");
+  // 4. давление: тренд
+  const d24=c.dP24, k=S.press, T=S.pT, sg=d24>0?"+":"";
+  if(Math.abs(d24)<=2) add(T[0]*k,`Давление стабильно (${sg}${d24.toFixed(1)} гПа/сут)`);
+  else if(d24<-2&&d24>=-6) add(T[1],`Давление плавно падает (${d24.toFixed(1)} гПа/сут)`);
+  else if(d24<-6) add(T[2],`Резкое падение давления (${d24.toFixed(1)} гПа/сут)`);
+  else if(d24<=6) add(T[3],`Давление растёт (+${d24.toFixed(1)} гПа/сут)`);
+  else add(T[4],`Резкий рост давления (+${d24.toFixed(1)} гПа/сут)`);
+  if(Math.abs(c.dP3)>=2) add(-5*k,"Быстрый скачок давления за 3 часа");
+  // 5. давление: уровень
+  if(c.press>1035) add(S.hiP,`Очень высокое давление (${Math.round(c.press)} гПа)`);
+  else if(c.press<1000) add(-4,`Низкое давление (${Math.round(c.press)} гПа)`);
+  // 6. ветер
+  const w=c.wind, W=S.wind;
+  if(!ice){
+    if(w<1) add(W[0],`Штиль (${w.toFixed(1)} м/с)`);
+    else if(w<3) add(W[1],`Слабый ветер (${w.toFixed(1)} м/с)`);
+    else if(w<7) add(W[2],`Рабочий ветер, рябь (${w.toFixed(1)} м/с)`);
+    else if(w<10) add(W[3],`Сильный ветер (${w.toFixed(1)} м/с)`);
+    else add(W[4],`Штормовой ветер (${w.toFixed(1)} м/с)`);
+    if(c.gust>15) add(-7,`Порывы до ${Math.round(c.gust)} м/с`);
+  }
+  // 7. осадки и грозы
+  if(c.code>=95) add(-15,"Гроза");
+  else if(c.rain3>6) add(-10,"Сильный дождь");
+  else if(c.rain3>=0.3) add(S.hot&&c.water<14?-2:S.rain,S.hot&&c.water>=14?"Тёплый небольшой дождь":"Небольшой дождь");
+  // 8. резкая смена температуры
+  if(Math.abs(c.dT24)>=8) add(S.dT,`Резкая смена погоды (${c.dT24>0?"+":""}${Math.round(c.dT24)}° за сутки)`);
+  // 9. луна (слабый фактор)
+  const mp=c.moon, nearNF=Math.min(mp,1-mp,Math.abs(mp-.5));
+  if(nearNF<.06) add(3,mp>.4&&mp<.6?"Полнолуние":"Новолуние");
+  if(c.light==="night" && Math.abs(mp-.5)<.1 && c.cloud<30 && sp==="zander") add(-4,"Яркая луна, ясная ночь");
+  // 10. лёд
+  if(ice) add(S.ice,S.hot||sp==="amur"?"Вероятен лёд — зимой почти не ловится":"Вероятен лёд или ледостав — зимняя ловля");
+  // 11. нерестовые запреты (бассейн Есиля, ориентировочно)
+  const g=SPECIES.find(x=>x.id===sp).g;
+  const ban = g==="pred" ? (sp!=="perch" && ((c.month===4&&c.day>=15)||(c.month===5&&c.day<=15)))
+                         : ((c.month===5&&c.day>=20)||(c.month===6&&c.day<=20));
+  const base=100/(1+Math.exp(-(s-50)/20)); // мягкое насыщение вместо обрезки
+  f.unshift(["Базовый уровень",45-50]);
+  let p=Math.round(3+(base-3)*(0.55+0.45*dens));
+  f.push(["Запасы вида на водоёме", Math.round(p-base)]);
+  return {p:clamp(p,3,97), f, ban, ice};
+}
+
+/* ---------- Приманки ---------- */
+function lures(sp,c){
+  const bright = c.cloud>60 || c.rain3>0.3 || c.light!=="day";
+  const col = bright?"Цвета: яркие и контрастные (кислотные, белый, «тигр»).":"Цвета: натуральные (окунь, плотва, моторное масло).";
+  const T=c.water; const ice=T<=1.2&&(c.month>=11||c.month<=4);
+  const iceCalm="Подо льдом практически не ловится.";
+  if(ice) return {
+    carp:iceCalm, sazan:iceCalm, amur:iceCalm,
+    pike:"Жерлицы на живца у травы и свалов, крупные балансиры 7–9 см.",
+    perch:"Мормышка с мотылём, вертикальные блёсны и балансиры 3–5 см, поиск по лункам.",
+    zander:"Вертикальная блесна, балансир или тюлька на бровках 6–10 м в сумерках."}[sp]+(SPECIES.find(x=>x.id===sp).g==="pred"?" "+col:"");
+  const L={
+    pike: T>16?"Воблеры-минноу 90–110 мм, спиннербейты и поппер утром у травы; вертушки №3–4."
+        : T>=8?"Джерки и крупные воблеры, силикон 10–14 см на джиге 14–21 г, колебалки 18–28 г. Проводка с паузами."
+        : "Медленная проводка: силикон 10–15 см, джиг-риг, тонущие воблеры; живец на поплавок.",
+    perch: T>16?"Вертушки №1–2, микроджиг 3–5 г, мелкие воблеры до 50 мм."
+        : T>=8?"Микроджиг и отводной поводок 5–10 г, силикон 5–7 см, мелкие колебалки. Ищите стаю на свале."
+        : "Отводной поводок и дроп-шот, медленная ступенька; с лодки — вертикальное блеснение.",
+    zander: T>16?"Ночью и в сумерках — воблеры с заглублением 2–4 м над бровками; днём джиг на глубине."
+        : T>=8?"Джиг 18–28 г по бровкам, поролоновые рыбки и виброхвосты 8–12 см, ступенчатая проводка."
+        : "Тяжёлый джиг с длинными паузами у дна, отводной поводок, тюлька; держитесь ям 8–12 м.",
+    carp: T>18?"Фидер, метод-кормушка или карповый монтаж: кукуруза, бойлы 15–20 мм, пеллетс. Ночью — бойлы на волосяной оснастке."
+        : T>=12?"Кукуруза, мелкие бойлы 10–14 мм, червь с опарышем. Прикормки немного, ловите на прогретых участках."
+        : "Червь, опарыш, мотыль на тонкой оснастке. Прикармливать почти не нужно, клёв редкий.",
+    sazan: T>16?"Донка или фидер на течении у бровки русла: кукуруза, варёный картофель, горох, пучок червей. Лучшее время — ночь."
+        : T>=11?"Донка у выхода из ям: червь, кукуруза, горох. Ловите вечером и ночью."
+        : "Червь на донку в глубоких ямах, клёв редкий.",
+    amur: T>20?"Поплавок или донка у травы днём: молодой тростник, листья кукурузы, зелёный горох, огурец, кукуруза."
+        : T>=14?"Кукуруза, зелёный горох, тесто с зеленью; ищите у прогретой травы."
+        : "При такой воде амур почти не питается."
+  };
+  const pred=SPECIES.find(x=>x.id===sp).g==="pred";
+  let s=L[sp]+(pred?" "+col:"");
+  if(c.light==="night"&&sp==="perch") s="Ночью окунь почти не берёт — лучше ждать утра. "+s;
+  return s;
+}
+
+/* ---------- Состояние и отрисовка ---------- */
+const state={day:null, slot:store.get("klev-slot")!=null?+store.get("klev-slot"):0,
+  sp:(v=>v&&v!=="best"?v:"bestPred")(store.get("klev-sp")), sel:store.get("klev-sel")||"vyach", cell:null};
+let PREP={}, map, markers={};
+
+function slotTime(day,slot){const s=SLOTS[slot];return addDays(day,s.off)+"T"+pad(s.h)+":00"}
+function calc(wId,day,slot){
+  const W=WATERS.find(w=>w.id===wId), P=PREP[wId]; const c=conditions(P,wId,slotTime(day,slot));
+  const r={c}; SPECIES.forEach(s=>r[s.id]=score(s.id,c,W.d[s.id])); return r;
+}
+function mapValue(r){
+  if(!r.c) return null;
+  if(state.sp==="bestPred"||state.sp==="bestCalm"){
+    const g=state.sp==="bestPred"?"pred":"calm";
+    const vals=SPECIES.filter(s=>s.g===g).map(s=>r[s.id]&&r[s.id].p).filter(v=>v!=null);
+    return vals.length?Math.max(...vals):null;
+  }
+  const v=r[state.sp]; return v&&v.p!=null?v.p:null;
+}
+
+function buildControls(today){
+  const days=$("#days"); const wd=["вс","пн","вт","ср","чт","пт","сб"];
+  for(let i=0;i<7;i++){
+    const d=addDays(today,i), dt=new Date(d+"T12:00:00Z");
+    const b=document.createElement("button"); b.className="chip"; b.id="day-"+i;
+    b.innerHTML=(i===0?"Сегодня":i===1?"Завтра":wd[dt.getUTCDay()])+`<span class="d">${pad(dt.getUTCDate())}.${pad(dt.getUTCMonth()+1)}</span>`;
+    b.onclick=()=>{state.day=d;render()}; b.dataset.day=d; days.appendChild(b);
+  }
+  const sl=$("#slots");
+  SLOTS.forEach((s,i)=>{const b=document.createElement("button");b.className="chip";b.id="slot-"+i;b.textContent=s.label;
+    b.onclick=()=>{state.slot=i;state.cell=null;store.set("klev-slot",i);render()};sl.appendChild(b)});
+  const sp=$("#spsel");
+  [{id:"bestPred",name:"Хищник"},{id:"bestCalm",name:"Мирная"},...SPECIES].forEach(s=>{const b=document.createElement("button");b.className="chip";b.id="sp-"+s.id;b.textContent=s.name;
+    b.onclick=()=>{state.sp=s.id;store.set("klev-sp",s.id);render()};sp.appendChild(b)});
+  const cb=$("#compact"); cb.checked=store.get("klev-compact")==="1";
+  cb.onchange=()=>{store.set("klev-compact",cb.checked?"1":"0");document.body.classList.toggle("compact",cb.checked)};
+  document.body.classList.toggle("compact",cb.checked);
+}
+
+function initMap(){
+  map=L.map("map",{zoomControl:true}).setView([51.6,71.5],7);
+  const base=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    {maxZoom:18,subdomains:"abcd",attribution:'&copy; OpenStreetMap, &copy; CARTO'}).addTo(map);
+  const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {maxZoom:18,attribution:"Esri World Imagery"});
+  const osm=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"&copy; OpenStreetMap"});
+  L.control.layers({"Карта":base,"Спутник":sat,"OpenStreetMap":osm},null,{position:"topright"}).addTo(map);
+  L.circle([ASTANA.lat,ASTANA.lon],{radius:250000,color:"#1d5b56",weight:1,dashArray:"4 6",fill:false}).addTo(map);
+  L.marker([ASTANA.lat,ASTANA.lon],{icon:L.divIcon({className:"",html:'<div class="mk city" style="width:44px;height:18px">АСТАНА</div>',iconSize:[44,18]}),interactive:false}).addTo(map);
+  const b=L.latLngBounds(WATERS.map(w=>[w.lat,w.lon])); map.fitBounds(b.pad(0.08));
+}
+
+function drawMarkers(){
+  WATERS.forEach(w=>{
+    const r=calc(w.id,state.day,state.slot); const v=mapValue(r);
+    const sz=w.type==="river"?34:40;
+    const html=`<div class="mk${w.id===state.sel?" sel":""}" style="width:${sz}px;height:${sz}px;background:${colorFor(v)}">${v==null?"—":v}</div>`;
+    const icon=L.divIcon({className:"",html,iconSize:[sz,sz]});
+    if(markers[w.id]) markers[w.id].setIcon(icon);
+    else{
+      markers[w.id]=L.marker([w.lat,w.lon],{icon,keyboard:true,title:w.name}).addTo(map)
+        .bindTooltip(w.name,{direction:"top",offset:[0,-18]})
+        .on("click",()=>{state.sel=w.id;state.cell=null;store.set("klev-sel",w.id);render();
+          if(window.innerWidth<=860) $("#panel").scrollIntoView({behavior:"smooth"})});
+    }
+  });
+}
+
+function renderPanel(){
+  const W=WATERS.find(w=>w.id===state.sel); const res=SLOTS.map((s,i)=>calc(W.id,state.day,i));
+  const dist=km(ASTANA,W);
+  const cell=state.cell||{sp:bestSpecies(res[state.slot]),slot:state.slot};
+  let h=`<h2>${esc(W.name)}</h2><div class="meta"><span>${TYPE_RU[W.type]}</span><span>≈${dist} км от Астаны</span>
+    <span>${W.lat.toFixed(3)}, ${W.lon.toFixed(3)}</span></div>
+    <div class="sp-tags">${SPECIES.map(s=>W.d[s.id]?`<span class="tag">${s.name}</span>`:`<span class="tag no">${s.name}: нет</span>`).join("")}</div>`;
+  const banOf=g=>res.some(r=>SPECIES.some(s=>s.g===g&&r[s.id]&&r[s.id].ban));
+  if(banOf("pred")) h+=`<div class="warn">Нерестовый запрет на щуку и судака в бассейне Есиля (ориентировочно 15 апреля – 15 мая). Проверьте актуальные сроки перед поездкой.</div>`;
+  if(banOf("calm")) h+=`<div class="warn">Нерестовый запрет на карпа и сазана в бассейне Есиля (ориентировочно 20 мая – 20 июня). Проверьте актуальные сроки перед поездкой.</div>`;
+  if(res[0].c && res.some(r=>SPECIES.some(s=>r[s.id]&&r[s.id].ice))) h+=`<div class="warn">По расчётной температуре воды возможен лёд. Выходите на лёд только при толщине от 7–10 см.</div>`;
+  h+=`<div class="tbl-wrap"><table><thead><tr><th></th>${SLOTS.map(s=>`<th>${s.label}</th>`).join("")}</tr></thead><tbody>`;
+  SPECIES.forEach((s,si)=>{
+    if(si===0||SPECIES[si-1].g!==s.g) h+=`<tr><td class="grp" colspan="${SLOTS.length+1}">${GROUPS.find(g=>g.id===s.g).name}</td></tr>`;
+    h+=`<tr><th class="row">${s.name}</th>`;
+    res.forEach((r,i)=>{
+      const v=r[s.id];
+      if(!r.c) h+=`<td class="p na">нет данных</td>`;
+      else if(v.p==null) h+=`<td class="p na">нет</td>`;
+      else h+=`<td class="p${cell.sp===s.id&&cell.slot===i?" sel":""}" style="background:${colorFor(v.p)}" data-sp="${s.id}" data-slot="${i}" tabindex="0" title="${wordFor(v.p)}">${v.p}%<small>${wordFor(v.p)}</small></td>`;
+    });
+    h+=`</tr>`;
+  });
+  h+=`</tbody></table></div>`;
+  h+=`<div class="legend"><span><i style="background:var(--bad)"></i>0–24</span><span><i style="background:var(--weak)"></i>25–44</span><span><i style="background:var(--mid)"></i>45–64</span><span><i style="background:var(--good)"></i>65–79</span><span><i style="background:var(--top)"></i>80+</span><span>24:00 и 03:00 — ночь после выбранного дня</span></div>`;
+  // погода
+  const dirs=["С","СВ","В","ЮВ","Ю","ЮЗ","З","СЗ"];
+  const row=(k,fn)=>`<div class="k">${k}</div>`+res.map(r=>`<div>${r.c?fn(r.c):"—"}</div>`).join("");
+  h+=`<div class="extra"><details open><summary>Погода в эти часы</summary><div class="wx">
+    <div></div>${SLOTS.map(s=>`<div class="hd">${s.label}</div>`).join("")}
+    ${row("Воздух",c=>`${Math.round(c.air)}°`)}
+    ${row("Вода (расч.)",c=>`${c.water.toFixed(1)}°`)}
+    ${row("Давление",c=>`${Math.round(c.press*0.750062)}`)}
+    ${row("За сутки",c=>`${c.dP24>0?"+":""}${(c.dP24*0.750062).toFixed(1)}`)}
+    ${row("Ветер, м/с",c=>`${dirs[Math.round(c.wdir/45)%8]} ${Math.round(c.wind)}`)}
+    ${row("Облачность",c=>`${Math.round(c.cloud)}%`)}
+    ${row("Осадки",c=>c.rain3>=0.1?`${c.rain3.toFixed(1)} мм`:"нет")}
+    ${row("Свет",c=>LIGHT_RU[c.light].replace("рассвет/закат","сумерки"))}
+  </div><p class="note">Давление в мм рт. ст. Луна: ${res[0].c?moonName(res[0].c.moon):"—"}. Температура воды рассчитана по погоде последних дней и сезонной норме — это оценка, не замер.</p></details>`;
+  // почему
+  const cr=res[cell.slot], cv=cr&&cr[cell.sp];
+  if(cr&&cr.c&&cv&&cv.p!=null){
+    const sn=SPECIES.find(s=>s.id===cell.sp).name;
+    h+=`<details open><summary>Почему ${sn.toLowerCase()} ${cv.p}% в ${SLOTS[cell.slot].label}</summary>
+      <p class="note">Нажмите на любую ячейку таблицы, чтобы увидеть разбор для неё. Сумма баллов переводится в проценты по плавной шкале.</p>
+      <ul class="fac">${cv.f.map(([t,v])=>`<li><span>${esc(t)}</span><b class="${v>0?"pos":v<0?"neg":"zero"}">${v>0?"+":""}${v}</b></li>`).join("")}</ul></details>`;
+    h+=`<details open><summary>Приманки и насадки на ${SLOTS[cell.slot].label}</summary><div class="lure">
+      ${SPECIES.filter(s=>W.d[s.id]).map(s=>`<h4>${s.name}</h4><p>${esc(lures(s.id,cr.c))}</p>`).join("")}</div></details>`;
+  }
+  h+=`<details open><summary>Где искать на водоёме</summary><p class="note" style="color:var(--ink)">${esc(W.spots)}</p>${W.calm?`<p class="note" style="color:var(--ink)">${esc(W.calm)}</p>`:""}</details>`;
+  // рейтинг
+  h+=`<details><summary>Все водоёмы на ${SLOTS[state.slot].label}</summary><div class="rank">`+
+    WATERS.map(w=>({w,v:mapValue(calc(w.id,state.day,state.slot))})).sort((a,b)=>(b.v??-1)-(a.v??-1))
+      .map(({w,v})=>`<button data-go="${w.id}"><span>${esc(w.name)}</span><span class="pill" style="background:${colorFor(v)}">${v==null?"—":v+"%"}</span></button>`).join("")+
+    `</div></details></div>`;
+  h+=`<footer>Прогноз — расчётная модель: температура воды, сезон, давление и его тренд, ветер, облачность, осадки, время суток и Луна, плюс запасы вида на водоёме. Погода: Open-Meteo, обновляется при открытии (кэш 1 час). Координаты водоёмов приблизительные. Наличие карпа, сазана и амура зависит от зарыбления — уточняйте на месте. Правила рыболовства и запреты проверяйте в инспекции.</footer>`;
+  const p=$("#panel"); p.innerHTML=h;
+  p.querySelectorAll("td.p[data-sp]").forEach(td=>{
+    const go=()=>{state.cell={sp:td.dataset.sp,slot:+td.dataset.slot};renderPanel()};
+    td.onclick=go; td.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}};
+  });
+  p.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{state.sel=b.dataset.go;state.cell=null;store.set("klev-sel",state.sel);
+    const w=WATERS.find(x=>x.id===state.sel);map.panTo([w.lat,w.lon]);render()});
+}
+function bestSpecies(r){let best="pike",bv=-1;SPECIES.forEach(s=>{const v=r&&r[s.id];if(v&&v.p!=null&&v.p>bv){bv=v.p;best=s.id}});return best}
+
+function render(){
+  document.querySelectorAll("#days .chip").forEach(b=>b.setAttribute("aria-pressed",b.dataset.day===state.day));
+  SLOTS.forEach((s,i)=>$("#slot-"+i).setAttribute("aria-pressed",i===state.slot));
+  ["bestPred","bestCalm",...SPECIES.map(s=>s.id)].forEach(id=>$("#sp-"+id).setAttribute("aria-pressed",id===state.sp));
+  drawMarkers(); renderPanel();
+}
+function fitHeader(){document.documentElement.style.setProperty("--hh",$("#hdr").offsetHeight+"px");if(map)map.invalidateSize()}
+
+async function start(){
+  const now=new Date(Date.now()+5*3600e3); const today=ymd(now); // Астана, UTC+5
+  state.day=today; buildControls(today); initMap(); fitHeader(); window.addEventListener("resize",fitHeader);
+  if(!WATERS.some(w=>w.id===state.sel)) state.sel="vyach";
+  try{
+    const data=await loadWeather();
+    WATERS.forEach((w,i)=>PREP[w.id]=prepare(w,data[i]));
+    render();
+  }catch(e){
+    $("#status").className="status err";
+    $("#status").innerHTML="Не удалось получить прогноз погоды: "+esc(e.message)+". Проверьте интернет и обновите страницу.";
+  }
+}
+if(typeof module!=="undefined"){module.exports={WATERS,prepare,conditions,score,lures,calc,PREP,state,SLOTS,SPECIES}}
+else start();
+</script>
+</body>
+</html>
